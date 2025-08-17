@@ -129,6 +129,16 @@ static std::string GetLatestLogFile(const std::string& logDir)
     return latestLog;
 }
 std::map<std::string, PlayerDPS> players;
+int GetRestHoursFromLog(const std::string& line) {
+    std::regex restRegex(R"(Try again in (\d+) hours)");
+    std::smatch match;
+    if (std::regex_search(line, match, restRegex)) {
+        return std::stoi(match[1].str());
+    }
+    return 0; 
+}
+bool RestTimerActive = false;
+std::chrono::steady_clock::time_point RestReadyTime;
 void static LogParserThread(const std::string& logDir)
 {
     std::string currentLog = GetLatestLogFile(logDir);
@@ -144,29 +154,36 @@ void static LogParserThread(const std::string& logDir)
         printf("Failed to open log file: %s\n", currentLog.c_str());
         return;
     }
-    printf("Opened log file: %s\n", currentLog.c_str());  // ✅ print it here
+    printf("Opened log file: %s\n", currentLog.c_str());  
 
     logFile.seekg(0, std::ios::end);
 
     std::string line;
     while (parserRunning)
     {
-        if (std::getline(logFile, line))
-        {
+            if (std::getline(logFile, line))
+            {
+            int restHours = GetRestHoursFromLog(line);
+            if (restHours > 0) {
+                // 1 in-game hour = 2 real minutes
+                int restSeconds = restHours * 2 * 60;
+                RestReadyTime = std::chrono::steady_clock::now() + std::chrono::seconds(restSeconds);
+                RestTimerActive = true;
+                printf("Rest will be ready in %d seconds\n", restSeconds);
+            }
+
+            
             size_t dmgPos = line.find(" damages ");
             if (dmgPos != std::string::npos)
             {
-                // Skip the "[CHAT WINDOW TEXT] [timestamp]" part
-                size_t rightBracket = line.find("]", line.find("]") + 1); // second ']'
+                size_t rightBracket = line.find("]", line.find("]") + 1); 
                 if (rightBracket != std::string::npos) {
-                    size_t nameStart = rightBracket + 2; // skip "] "
+                    size_t nameStart = rightBracket + 2; 
 
-                    // Attacker name is from here up until " damages "
                     std::string attacker = line.substr(nameStart, dmgPos - nameStart);
-                    attacker.erase(0, attacker.find_first_not_of(" ")); // trim left
-                    attacker.erase(attacker.find_last_not_of(" ") + 1); // trim right
+                    attacker.erase(0, attacker.find_first_not_of(" ")); 
+                    attacker.erase(attacker.find_last_not_of(" ") + 1); 
 
-                    // Damage value is after ':'
                     size_t colonPos = line.find(':', dmgPos);
                     if (colonPos != std::string::npos) {
                         size_t startNum = colonPos + 1;
@@ -386,7 +403,6 @@ void static LogParserThread(const std::string& logDir)
         }
         else
         {
-            // Check if a new log appeared
             std::string latest = GetLatestLogFile(logDir);
             if (latest != currentLog)
             {
@@ -399,7 +415,6 @@ void static LogParserThread(const std::string& logDir)
                     printf("Failed to open new log file: %s\n", currentLog.c_str());
                     return;
                 }
-                // Start reading from the beginning of the new log
                 logFile.seekg(0, std::ios::beg);
             }
             else

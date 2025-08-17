@@ -189,176 +189,204 @@ extern int totalGold;
 extern int currentGold;
 extern int goldHrAccumulated;
 extern std::chrono::steady_clock::time_point goldStartTime;
+extern std::chrono::steady_clock::time_point RestReadyTime;
+extern bool RestTimerActive;
 void Overlay::RenderInfo()
 {
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
-    ImGui::SetNextWindowPos(infoWindowPos);
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
+	ImGui::SetNextWindowPos(infoWindowPos);
 
-    LevelInfo lvlInfo = GetLevelFromXP(currentXP);
-    auto now2 = std::chrono::steady_clock::now();
-    auto remaining = std::chrono::duration_cast<std::chrono::seconds>(serverRestartTime - now2).count();
+	LevelInfo lvlInfo = GetLevelFromXP(currentXP);
+	auto now2 = std::chrono::steady_clock::now();
+	auto remaining = std::chrono::duration_cast<std::chrono::seconds>(serverRestartTime - now2).count();
 
-    int hours = remaining / 3600;
-    int minutes = (remaining % 3600) / 60;
-    int seconds = remaining % 60;
+	int hours = remaining / 3600;
+	int minutes = (remaining % 3600) / 60;
+	int seconds = remaining % 60;
 
-    std::string dmgStr = "Total Damage: " + FormatWithCommas(totalDamage.load());
-    std::string expStr = "Total Experience: " + FormatWithCommas(totalExperience.load());
-    std::string killStr = "Total Kills: " + FormatWithCommas(totalKills.load());
-    std::string dpsStr = "DPS: " + std::to_string(static_cast<int>(currentDPS));
-    std::string currentLevelStr = "Current Level: " + std::to_string(lvlInfo.currentLevel);
-    std::string xpLeftStr = "XP to Next Level: " + FormatWithCommas(lvlInfo.xpToNextLevel);
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Server Restart In: %02d:%02d:%02d", hours, minutes, seconds);
+	std::string dmgStr = "Total Damage: " + FormatWithCommas(totalDamage.load());
+	std::string expStr = "Total Experience: " + FormatWithCommas(totalExperience.load());
+	std::string killStr = "Total Kills: " + FormatWithCommas(totalKills.load());
+	std::string dpsStr = "DPS: " + std::to_string(static_cast<int>(currentDPS));
+	std::string currentLevelStr = "Current Level: " + std::to_string(lvlInfo.currentLevel);
+	std::string xpLeftStr = "XP to Next Level: " + FormatWithCommas(lvlInfo.xpToNextLevel);
+	char buf[64];
+	snprintf(buf, sizeof(buf), "Server Restart In: %02d:%02d:%02d", hours, minutes, seconds);
 
-    ImVec2 dmgSize = ImGui::CalcTextSize(dmgStr.c_str());
-    ImVec2 expSize = ImGui::CalcTextSize(expStr.c_str());
-    ImVec2 killSize = ImGui::CalcTextSize(killStr.c_str());
-    ImVec2 dpsSize = ImGui::CalcTextSize(dpsStr.c_str());
-    ImVec2 xpLeftSize = ImGui::CalcTextSize(xpLeftStr.c_str());
-    ImVec2 currentLevelSize = ImGui::CalcTextSize(currentLevelStr.c_str());
-    ImVec2 restartSize = ImGui::CalcTextSize(buf);
+	ImVec2 dmgSize = ImGui::CalcTextSize(dmgStr.c_str());
+	ImVec2 expSize = ImGui::CalcTextSize(expStr.c_str());
+	ImVec2 killSize = ImGui::CalcTextSize(killStr.c_str());
+	ImVec2 dpsSize = ImGui::CalcTextSize(dpsStr.c_str());
+	ImVec2 xpLeftSize = ImGui::CalcTextSize(xpLeftStr.c_str());
+	ImVec2 currentLevelSize = ImGui::CalcTextSize(currentLevelStr.c_str());
+	ImVec2 restartSize = ImGui::CalcTextSize(buf);
 
-    float maxLeftWidth = std::max({ dmgSize.x, expSize.x, killSize.x, dpsSize.x, xpLeftSize.x, currentLevelSize.x, restartSize.x }) + 20.0f;
+	float maxLeftWidth = std::max({ dmgSize.x, expSize.x, killSize.x, dpsSize.x, xpLeftSize.x, currentLevelSize.x, restartSize.x }) + 20.0f;
 
-    static std::string xpPerHourStr; 
-        
-    ImVec2 goldSize = ImGui::CalcTextSize("Gold: 00000000000000");
-    ImVec2 goldPerHourSize = ImGui::CalcTextSize("Gold/hr: 000000000000.0");
+	static std::string xpPerHourStr;
 
-    
-    float maxRightWidth = std::max({ goldSize.x, goldPerHourSize.x }) + 20.0f;
+	ImVec2 goldSize = ImGui::CalcTextSize("Gold: 00000000000000");
+	ImVec2 goldPerHourSize = ImGui::CalcTextSize("Gold/hr: 000000000000.0");
 
-    
-    int numLines = 6;
-    float lineHeight = dmgSize.y;
-    float totalHeight = (lineHeight * numLines) + 40.0f;
 
-    
-    static int64_t damageLast = 0;
-    int64_t damageNow = totalDamage.load();
-    int64_t damageDiff = damageNow - damageLast;
+	float maxRightWidth = std::max({ goldSize.x, goldPerHourSize.x }) + 20.0f;
 
-    if (damageDiff > 0)
-    {
-        auto now = std::chrono::steady_clock::now();
 
-        if (!dpsActive)
-        {
-            dpsStartTime = now;
-            damageAccum = 0;
-            dpsActive = true;
-        }
+	int numLines = 6;
+	float lineHeight = dmgSize.y;
+	float totalHeight = (lineHeight * numLines) + 40.0f;
 
-        damageAccum += damageDiff;
-        lastDamageTime = now;
-    }
-    else
-    {
-        if (dpsActive)
-        {
-            auto now = std::chrono::steady_clock::now();
-            auto timeSinceLastDamage = std::chrono::duration_cast<std::chrono::seconds>(now - lastDamageTime).count();
-            if (timeSinceLastDamage >= 5)
-            {
-                dpsActive = false;
-                damageAccum = 0;
-                currentDPS = 0.0f;
-            }
-        }
-    }
 
-    damageLast = damageNow;
+	static int64_t damageLast = 0;
+	int64_t damageNow = totalDamage.load();
+	int64_t damageDiff = damageNow - damageLast;
 
-    if (dpsActive)
-    {
-        auto now = std::chrono::steady_clock::now();
-        auto elapsedSec = std::chrono::duration_cast<std::chrono::milliseconds>(now - dpsStartTime).count() / 1000.0f;
-        if (elapsedSec > 0.0f)
-            currentDPS = damageAccum / elapsedSec;
-    }
+	if (damageDiff > 0)
+	{
+		auto now = std::chrono::steady_clock::now();
 
-        float currentLevelXPStart = XP_TABLE[lvlInfo.currentLevel];
-    float nextLevelXPStart = XP_TABLE[lvlInfo.currentLevel + 1];
-    float progress = (float)(currentXP - currentLevelXPStart) /
-        (float)(nextLevelXPStart - currentLevelXPStart);
-    progress = std::clamp(progress, 0.0f, 1.0f);
+		if (!dpsActive)
+		{
+			dpsStartTime = now;
+			damageAccum = 0;
+			dpsActive = true;
+		}
 
-    static float displayedProgress = 0.0f;
-    float speed = 5.0f;
-    displayedProgress += (progress - displayedProgress) * ImGui::GetIO().DeltaTime * speed;
+		damageAccum += damageDiff;
+		lastDamageTime = now;
+	}
+	else
+	{
+		if (dpsActive)
+		{
+			auto now = std::chrono::steady_clock::now();
+			auto timeSinceLastDamage = std::chrono::duration_cast<std::chrono::seconds>(now - lastDamageTime).count();
+			if (timeSinceLastDamage >= 5)
+			{
+				dpsActive = false;
+				damageAccum = 0;
+				currentDPS = 0.0f;
+			}
+		}
+	}
 
-    static auto xpHrStartTime = std::chrono::steady_clock::now();
-    auto now = std::chrono::steady_clock::now();
-    float elapsedHours = std::chrono::duration_cast<std::chrono::seconds>(now - xpHrStartTime).count() / 3600.0f;
-    float xpPerHour = (elapsedHours > 0.0f) ? (xpHrAccumulated / elapsedHours) : 0.0f;
-    xpPerHourStr = "XP/hr: " + FormatWithCommas((long long)xpPerHour);
+	damageLast = damageNow;
 
-        ImVec2 xpPerHourSize = ImGui::CalcTextSize(xpPerHourStr.c_str());
-    maxRightWidth = std::max({ xpPerHourSize.x, goldSize.x, goldPerHourSize.x }) + 20.0f;
+	if (dpsActive)
+	{
+		auto now = std::chrono::steady_clock::now();
+		auto elapsedSec = std::chrono::duration_cast<std::chrono::milliseconds>(now - dpsStartTime).count() / 1000.0f;
+		if (elapsedSec > 0.0f)
+			currentDPS = damageAccum / elapsedSec;
+	}
 
-        float totalWidth = maxLeftWidth + maxRightWidth + 10.0f; 
-    ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
+	float currentLevelXPStart = XP_TABLE[lvlInfo.currentLevel];
+	float nextLevelXPStart = XP_TABLE[lvlInfo.currentLevel + 1];
+	float progress = (float)(currentXP - currentLevelXPStart) /
+		(float)(nextLevelXPStart - currentLevelXPStart);
+	progress = std::clamp(progress, 0.0f, 1.0f);
 
-    ImGui::Begin("##info", nullptr,
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoScrollbar);
+	static float displayedProgress = 0.0f;
+	float speed = 5.0f;
+	displayedProgress += (progress - displayedProgress) * ImGui::GetIO().DeltaTime * speed;
 
-    ImGui::Columns(2, nullptr, false); 	ImGui::SetColumnWidth(0, maxLeftWidth);
+	static auto xpHrStartTime = std::chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
+	float elapsedHours = std::chrono::duration_cast<std::chrono::seconds>(now - xpHrStartTime).count() / 3600.0f;
+	float xpPerHour = (elapsedHours > 0.0f) ? (xpHrAccumulated / elapsedHours) : 0.0f;
+	xpPerHourStr = "XP/hr: " + FormatWithCommas((long long)xpPerHour);
+
+	ImVec2 xpPerHourSize = ImGui::CalcTextSize(xpPerHourStr.c_str());
+	maxRightWidth = std::max({ xpPerHourSize.x, goldSize.x, goldPerHourSize.x }) + 20.0f;
+
+	float totalWidth = maxLeftWidth + maxRightWidth + 10.0f;
+	ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
+
+	ImGui::Begin("##info", nullptr,
+		ImGuiWindowFlags_NoTitleBar |
+		ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoScrollbar);
+
+	ImGui::Columns(2, nullptr, false); 	ImGui::SetColumnWidth(0, maxLeftWidth);
 	ImGui::SetColumnWidth(1, maxRightWidth);
 
-    if (load)
-    {
-        std::ifstream file("Config.txt");
-        if (file.is_open())
-        {
-            file >> infoWindowPos.x >> infoWindowPos.y;
-            file >> infoWindowPos2.x >> infoWindowPos2.y;
-            file >> bgAlpha;
-            file >> infoWindowPos3.x >> infoWindowPos3.y;
+	if (load)
+	{
+		std::ifstream file("Config.txt");
+		if (file.is_open())
+		{
+			file >> infoWindowPos.x >> infoWindowPos.y;
+			file >> infoWindowPos2.x >> infoWindowPos2.y;
+			file >> bgAlpha;
+			file >> infoWindowPos3.x >> infoWindowPos3.y;
 			file >> DPSWindowPos.x >> DPSWindowPos.y;
-            file.close();
-        }
-        else
-        {
-            printf("Failed to open Config.txt for reading\n");
-        }
-        load = false;
-    }
+			file.close();
+		}
+		else
+		{
+			printf("Failed to open Config.txt for reading\n");
+		}
+		load = false;
+	}
 
-    const int warningThreshold = 60 * 10;
-    const int alertThreshold = 60 * 2;
+	const int warningThreshold = 60 * 10;
+	const int alertThreshold = 60 * 2;
 
-    ImVec4 color;
-    if (remaining <= alertThreshold) {
-        color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-    }
-    else if (remaining <= warningThreshold) {
-        color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
-    }
-    else {
-        color = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
-    }
+	ImVec4 color;
+	if (remaining <= alertThreshold) {
+		color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+	}
+	else if (remaining <= warningThreshold) {
+		color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
+	}
+	else {
+		color = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+	}
 
-    auto nowgold = std::chrono::steady_clock::now();
-    double elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(nowgold - goldStartTime).count();
+	auto nowgold = std::chrono::steady_clock::now();
+	double elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(nowgold - goldStartTime).count();
 
-    double goldPerHour = 0.0;
-    if (elapsedSeconds > 0) {
-        goldPerHour = goldHrAccumulated / (elapsedSeconds / 3600.0);
-    }
+	double goldPerHour = 0.0;
+	if (elapsedSeconds > 0) {
+		goldPerHour = goldHrAccumulated / (elapsedSeconds / 3600.0);
+	}
 
-    ImGui::TextColored(color, "%s", buf);
-    ImGui::TextColored(WHITE, "%s", expStr.c_str());
-   
-    ImGui::TextColored(WHITE, "%s", killStr.c_str());
-    
-    
+	ImGui::TextColored(color, "%s", buf);
+	ImGui::TextColored(WHITE, "%s", expStr.c_str());
 
-    
+	ImGui::TextColored(WHITE, "%s", killStr.c_str());
+
+
+
+
 	ImGui::TextColored(WHITE, "%s", currentLevelStr.c_str());
 	ImGui::TextColored(WHITE, "%s", xpLeftStr.c_str());
+
+	if (RestTimerActive) {
+		auto now = std::chrono::steady_clock::now();
+		auto restRemaining = std::chrono::duration_cast<std::chrono::seconds>(RestReadyTime - now).count();
+		if (restRemaining <= 0) {
+			RestTimerActive = false;
+			restRemaining = 0;
+		}
+
+		float t = 1.0f - std::clamp(restRemaining / 120.0f, 0.0f, 1.0f);
+
+		ImVec4 color;
+		if (t < 0.5f) {
+			color = ImVec4(1.0f, t * 2.0f, 0.0f, 1.0f);
+		}
+		else {
+			color = ImVec4(1.0f - (t - 0.5f) * 2.0f, 1.0f, 0.0f, 1.0f);
+		}
+
+		ImGui::TextColored(color, "Rest ready in: %d:%02d", restRemaining / 60, restRemaining % 60);
+	}
+	if (!RestTimerActive)
+	{
+		color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+		ImGui::TextColored(color, "Rest ready");
+	}
 	ImGui::NextColumn();
     ImGui::Text("%s", xpPerHourStr.c_str());
     ImGui::ProgressBar(displayedProgress, ImVec2(-1.0f, 0.0f));
@@ -559,6 +587,7 @@ void Overlay::RenderMenu()
 	ImGui::PopStyleColor();
 }
 extern std::map<std::string, PlayerDPS> players;
+
 std::string FormatInt(double value) {
 	return FormatWithCommas(static_cast<int64_t>(std::round(value)));
 }
@@ -574,19 +603,16 @@ void Overlay::RenderDPSMeter() {
 		ImGuiWindowFlags_NoScrollbar |
 		ImGuiWindowFlags_NoCollapse);
 
-	// Update per-player DPS timers
 	for (auto& [name, p] : players) {
 		p.Update();
 	}
 
-	// Sort players by DPS (fallback to damage if DPS is 0 or tied)
 	std::vector<std::pair<std::string, PlayerDPS>> sorted(players.begin(), players.end());
 	std::sort(sorted.begin(), sorted.end(),
 		[](auto& a, auto& b) {
 			return a.second.totalDamage > b.second.totalDamage;
 		});
-
-	// Table display
+	
 	if (ImGui::BeginTable("dpsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
 		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
 		ImGui::TableSetupColumn("Damage", ImGuiTableColumnFlags_WidthStretch);
@@ -598,7 +624,6 @@ void Overlay::RenderDPSMeter() {
 			auto& [name, p] = sorted[i];
 			ImGui::TableNextRow();
 
-			// Assign colors for top 5
 			ImVec4 color;
 			switch (i) {
 			case 0: color = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); break;   // Gold
