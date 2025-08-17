@@ -1,0 +1,7 @@
+864 853
+1635 74
+0.690000
+1918 806
+1319 823
+LogFilePath="C:\Users\CHANGE ME\Documents\Neverwinter Nights\logs\"
+UserName="CHANGE ME"
