@@ -3,7 +3,7 @@ By UnknownLight
 
 
 **Video:** [Watch on YouTube](https://www.youtube.com/watch?v=bMqkrmTklm4)
-Video is outdated.
+
 
 Also by UnknownLight is a map of Lost Souls Reborn:  
 [View the Map](https://paradoxlight.neocities.org/)

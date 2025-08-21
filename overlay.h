@@ -40,6 +40,7 @@ public:
 	void RenderMenu();
 	void Cooldowns();
 	void RenderDPSMeter();
+	void BuffWindow();
 	void PlayerList();
 	void ClickThrough(bool v);
 	void DrawLine(ImVec2 a, ImVec2 b, ImColor color, float width);

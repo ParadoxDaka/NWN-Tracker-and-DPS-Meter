@@ -8,7 +8,7 @@ struct PlayerDPS {
 
     std::chrono::steady_clock::time_point firstHit;
     std::chrono::steady_clock::time_point lastHit;
-
+    int64_t combatDamage = 0;
     // For fluid DPS calculation
     int64_t damageAccum = 0;
     std::chrono::steady_clock::time_point dpsStartTime;
@@ -34,26 +34,22 @@ struct PlayerDPS {
             dpsStartTime = now;
             damageAccum = 0;
             dpsActive = true;
+            combatDamage = 0;
         }
 
         damageAccum += dmg;
+        combatDamage += dmg;
         lastDamageTime = now;
         totalDamage += dmg;
 
         if (firstHit == lastHit) firstHit = now;
         lastHit = now;
     }
-
+    
     void Update() {
         auto now = std::chrono::steady_clock::now();
 
-        if (dpsActive) {
-            auto secondsSinceLast = std::chrono::duration_cast<std::chrono::seconds>(now - lastDamageTime).count();
-            if (secondsSinceLast >= DPS_RESET_SECONDS) {
-                dpsActive = false;
-                damageAccum = 0;
-            }
-        }
+        
 
         // Animate displayed DPS towards actual DPS smoothly
         float targetDPS = static_cast<float>(GetDPS());

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include "Players.h"
 #include <map>
+#include "LevelUtils.h"
 
 int width;
 int height;
@@ -93,21 +94,21 @@ ImVec2 infoWindowPos;
 ImVec2 infoWindowPos2;
 ImVec2 infoWindowPos3;
 ImVec2 DPSWindowPos;
+ImVec2 BuffWindowPos;
 bool load = true;
 static int64_t damageAccum = 0;       static std::chrono::steady_clock::time_point dpsStartTime;
 static std::chrono::steady_clock::time_point lastDamageTime;
 static bool dpsActive = false;
 static float currentDPS = 0.0f;
 extern int currentXP;
-struct LevelInfo {
-	int currentLevel;
-	int xpToNextLevel;
-	int xpCurrentLevelStart;
-};
+bool Buffwindow = false;
+bool Cooldownwindow = false;
+bool Stattrackerwindow = false;
+bool DPSwindow = false;
+bool Playerlistwindow = false;
 extern std::chrono::steady_clock::time_point serverRestartTime;
 extern bool serverRestartActive;
 
-const int NWN_LEVEL_MAX = 40;
 const int XP_TABLE[NWN_LEVEL_MAX + 1] = {
 	0,
 	0, 
@@ -151,7 +152,7 @@ const int XP_TABLE[NWN_LEVEL_MAX + 1] = {
 	741000,  
 	780000    };
 
-LevelInfo static GetLevelFromXP(int currentXP)
+LevelInfo GetLevelFromXP(int currentXP)
 {
 	LevelInfo info = { 1, 0, 0 };
 
@@ -181,6 +182,7 @@ std::string static FormatWithCommas(int64_t value)
 	ss << std::fixed << value;
 	return ss.str();
 }
+extern int TimeStopCooldown;
 static float bgAlpha = 1.0f;
 extern std::vector<std::string> playerList;
 extern bool GSTimerActive;
@@ -191,6 +193,9 @@ extern int goldHrAccumulated;
 extern std::chrono::steady_clock::time_point goldStartTime;
 extern std::chrono::steady_clock::time_point RestReadyTime;
 extern bool RestTimerActive;
+int tsCooldown = 9;
+extern bool bastion;
+extern bool lostsoulsreborn;
 void Overlay::RenderInfo()
 {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
@@ -234,7 +239,7 @@ void Overlay::RenderInfo()
 
 	int numLines = 6;
 	float lineHeight = dmgSize.y;
-	float totalHeight = (lineHeight * numLines) + 40.0f;
+	float totalHeight = (lineHeight * numLines) + 20.0f;
 
 
 	static int64_t damageLast = 0;
@@ -301,25 +306,29 @@ void Overlay::RenderInfo()
 
 	float totalWidth = maxLeftWidth + maxRightWidth + 10.0f;
 	ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
-
-	ImGui::Begin("##info", nullptr,
-		ImGuiWindowFlags_NoTitleBar |
-		ImGuiWindowFlags_NoResize |
-		ImGuiWindowFlags_NoScrollbar);
-
-	ImGui::Columns(2, nullptr, false); 	ImGui::SetColumnWidth(0, maxLeftWidth);
-	ImGui::SetColumnWidth(1, maxRightWidth);
-
 	if (load)
 	{
 		std::ifstream file("Config.txt");
 		if (file.is_open())
 		{
+			std::string dummy;
+			std::getline(file, dummy); // skip line 0
+			std::getline(file, dummy); // skip line 1
 			file >> infoWindowPos.x >> infoWindowPos.y;
 			file >> infoWindowPos2.x >> infoWindowPos2.y;
 			file >> bgAlpha;
 			file >> infoWindowPos3.x >> infoWindowPos3.y;
 			file >> DPSWindowPos.x >> DPSWindowPos.y;
+			file >> BuffWindowPos.x >> BuffWindowPos.y;
+			file >> bastion;
+			file >> lostsoulsreborn;
+			file >> tsCooldown;
+			file >> TimeStopCooldown;
+			file >> Buffwindow;
+			file >> Cooldownwindow;
+			file >> Stattrackerwindow;
+			file >> DPSwindow;
+			file >> Playerlistwindow;
 			file.close();
 		}
 		else
@@ -328,73 +337,89 @@ void Overlay::RenderInfo()
 		}
 		load = false;
 	}
+	if (Stattrackerwindow)
+	{
+		ImGui::Begin("##info", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoScrollbar);
 
-	const int warningThreshold = 60 * 10;
-	const int alertThreshold = 60 * 2;
+		ImGui::Columns(2, nullptr, false); 	ImGui::SetColumnWidth(0, maxLeftWidth);
+		ImGui::SetColumnWidth(1, maxRightWidth);
 
-	ImVec4 color;
-	if (remaining <= alertThreshold) {
-		color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-	}
-	else if (remaining <= warningThreshold) {
-		color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
-	}
-	else {
-		color = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
-	}
+		
 
-	auto nowgold = std::chrono::steady_clock::now();
-	double elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(nowgold - goldStartTime).count();
-
-	double goldPerHour = 0.0;
-	if (elapsedSeconds > 0) {
-		goldPerHour = goldHrAccumulated / (elapsedSeconds / 3600.0);
-	}
-
-	ImGui::TextColored(color, "%s", buf);
-	ImGui::TextColored(WHITE, "%s", expStr.c_str());
-
-	ImGui::TextColored(WHITE, "%s", killStr.c_str());
-
-
-
-
-	ImGui::TextColored(WHITE, "%s", currentLevelStr.c_str());
-	ImGui::TextColored(WHITE, "%s", xpLeftStr.c_str());
-
-	if (RestTimerActive) {
-		auto now = std::chrono::steady_clock::now();
-		auto restRemaining = std::chrono::duration_cast<std::chrono::seconds>(RestReadyTime - now).count();
-		if (restRemaining <= 0) {
-			RestTimerActive = false;
-			restRemaining = 0;
-		}
-
-		float t = 1.0f - std::clamp(restRemaining / 120.0f, 0.0f, 1.0f);
+		const int warningThreshold = 60 * 10;
+		const int alertThreshold = 60 * 2;
 
 		ImVec4 color;
-		if (t < 0.5f) {
-			color = ImVec4(1.0f, t * 2.0f, 0.0f, 1.0f);
+		if (remaining <= alertThreshold) {
+			color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+		}
+		else if (remaining <= warningThreshold) {
+			color = ImVec4(1.0f, 1.0f, 0.0f, 1.0f);
 		}
 		else {
-			color = ImVec4(1.0f - (t - 0.5f) * 2.0f, 1.0f, 0.0f, 1.0f);
+			color = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
 		}
 
-		ImGui::TextColored(color, "Rest ready in: %d:%02d", restRemaining / 60, restRemaining % 60);
-	}
-	if (!RestTimerActive)
-	{
-		color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
-		ImGui::TextColored(color, "Rest ready");
-	}
-	ImGui::NextColumn();
-    ImGui::Text("%s", xpPerHourStr.c_str());
-    ImGui::ProgressBar(displayedProgress, ImVec2(-1.0f, 0.0f));
-    ImGui::Text("Gold: %d", totalGold);
-    ImGui::Text("Gold/hr: %.1f", goldPerHour);
+		auto nowgold = std::chrono::steady_clock::now();
+		double elapsedSeconds = std::chrono::duration_cast<std::chrono::seconds>(nowgold - goldStartTime).count();
 
-    ImGui::Columns(1);     ImGui::End();
-    ImGui::PopStyleColor();
+		double goldPerHour = 0.0;
+		if (elapsedSeconds > 0) {
+			goldPerHour = goldHrAccumulated / (elapsedSeconds / 3600.0);
+		}
+		if (lostsoulsreborn)
+		{
+			ImGui::TextColored(color, "%s", buf);
+		}
+		ImGui::TextColored(WHITE, "%s", expStr.c_str());
+
+		ImGui::TextColored(WHITE, "%s", killStr.c_str());
+
+
+
+
+		ImGui::TextColored(WHITE, "%s", currentLevelStr.c_str());
+		ImGui::TextColored(WHITE, "%s", xpLeftStr.c_str());
+
+		if (RestTimerActive && bastion) {
+			auto now = std::chrono::steady_clock::now();
+			auto restRemaining = std::chrono::duration_cast<std::chrono::seconds>(RestReadyTime - now).count();
+			if (restRemaining <= 0) {
+				RestTimerActive = false;
+				restRemaining = 0;
+			}
+
+			float t = 1.0f - std::clamp(restRemaining / 120.0f, 0.0f, 1.0f);
+
+			ImVec4 color;
+			if (t < 0.5f) {
+				color = ImVec4(1.0f, t * 2.0f, 0.0f, 1.0f);
+			}
+			else {
+				color = ImVec4(1.0f - (t - 0.5f) * 2.0f, 1.0f, 0.0f, 1.0f);
+			}
+
+			ImGui::TextColored(color, "Rest ready in: %d:%02d", restRemaining / 60, restRemaining % 60);
+		}
+
+		if (!RestTimerActive && bastion)
+		{
+			color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+			ImGui::TextColored(color, "Rest ready");
+		}
+		ImGui::NextColumn();
+		ImGui::Text("%s", xpPerHourStr.c_str());
+		ImGui::ProgressBar(displayedProgress, ImVec2(-1.0f, 0.0f));
+		ImGui::Text("Gold: %d", totalGold);
+		ImGui::Text("Gold/hr: %.1f", goldPerHour);
+
+		ImGui::Columns(1);
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
 }
 void Overlay::PlayerList()
 {
@@ -420,28 +445,33 @@ void Overlay::PlayerList()
 	float windowPosX = rightEdgeX - totalWidth;
 	ImGui::SetNextWindowPos(ImVec2(windowPosX, posY));
 	ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
-
-	ImGui::Begin("##playerlist", nullptr,
-		ImGuiWindowFlags_NoTitleBar |
-		ImGuiWindowFlags_NoResize |
-		ImGuiWindowFlags_NoScrollbar);
-
-	ImGui::Text("%s", NumPlayer.c_str());
-	for (const auto& player : playerList)
+	if (Playerlistwindow)
 	{
-		ImGui::Text("%s", player.c_str());
-	}
+		ImGui::Begin("##playerlist", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoScrollbar);
 
-	ImGui::End();
-	ImGui::PopStyleColor();
+		ImGui::Text("%s", NumPlayer.c_str());
+		for (const auto& player : playerList)
+		{
+			ImGui::Text("%s", player.c_str());
+		}
+
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
 }
 extern std::chrono::steady_clock::time_point GSTimer;
 extern std::chrono::steady_clock::time_point TimeStopTimer;
 extern bool TimeStopTimerActive;
-extern int TimeStopCooldown;
+
+
 extern std::chrono::steady_clock::time_point GSShieldTimer;
 extern bool GSShieldTimerActive;
 extern int GSShieldCooldown;
+extern float CombatTimer;
+extern std::chrono::steady_clock::time_point LastDamageTime;
 void Overlay::Cooldowns()
 {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
@@ -457,7 +487,6 @@ void Overlay::Cooldowns()
 	auto now = std::chrono::steady_clock::now();
 
 	std::string tsText = "Time Stop: ";
-	constexpr int tsCooldown = 20;
 	bool tsActive = TimeStopTimerActive && now < TimeStopTimer;
 	int tsRemaining = tsActive ? std::chrono::duration_cast<std::chrono::seconds>(TimeStopTimer - now).count() : 0;
 	float tsT = tsActive ? 1.0f - (float)tsRemaining / tsCooldown : 1.0f;
@@ -511,18 +540,20 @@ void Overlay::Cooldowns()
 
 	ImGui::SetNextWindowPos(ImVec2(windowPosX, posY));
 	ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
+	if (Cooldownwindow)
+	{
+		ImGui::Begin("##Cooldowns", nullptr,
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
-	ImGui::Begin("##Cooldowns", nullptr,
-		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+		ImGui::Text("%s", header.c_str());
+		ImGui::TextColored(gsColor, "%s", gsText.c_str());
+		ImGui::TextColored(fsColor, "%s", fsText.c_str());
+		ImGui::TextColored(tsColor, "%s", tsText.c_str());
 
-	ImGui::Text("%s", header.c_str());
-	ImGui::TextColored(gsColor, "%s", gsText.c_str());
-	ImGui::TextColored(fsColor, "%s", fsText.c_str());
-	ImGui::TextColored(tsColor, "%s", tsText.c_str());
+		ImGui::End();
 
-	ImGui::End();
-
-	ImGui::PopStyleColor();
+		ImGui::PopStyleColor();
+	}
 }
 static inline std::string trim(const std::string& s) {
 	size_t start = s.find_first_not_of(" \t\n\r");
@@ -536,7 +567,7 @@ void Overlay::RenderMenu()
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1.0f));
 
 	ImGui::SetNextWindowPos(ImVec2(100, 0));
-	ImGui::SetNextWindowSize(ImVec2(500, 500));
+	ImGui::SetNextWindowSize(ImVec2(500, 450));
 	static bool menuOpen = true;
 	ImGui::Begin(XorStr("Config"), (bool*)true, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar);
 	
@@ -549,7 +580,28 @@ void Overlay::RenderMenu()
 	ImGui::DragFloat("Cooldown List Y", &infoWindowPos3.y, 1.0f);
 	ImGui::DragFloat("DPS X", &DPSWindowPos.x, 1.0f);
 	ImGui::DragFloat("DPS Y", &DPSWindowPos.y, 1.0f);
+	ImGui::DragFloat("Buff's X", &BuffWindowPos.x, 1.0f);
+	ImGui::DragFloat("Buff's Y", &BuffWindowPos.y, 1.0f);
 	ImGui::SliderFloat("Background Alpha", &bgAlpha, 0.0f, 1.0f, "%.2f");
+	ImGui::Sliderbox("Buffs", &Buffwindow);
+	ImGui::Sliderbox("Cooldowns", &Cooldownwindow);
+	ImGui::Sliderbox("Stats", &Stattrackerwindow);
+	ImGui::Sliderbox("DPS Meter", &DPSwindow);
+	ImGui::Sliderbox("Player List", &Playerlistwindow);
+	if (ImGui::Sliderbox("Bastion", &bastion))
+	{
+		lostsoulsreborn = false;
+		TimeStopCooldown = 9;
+		tsCooldown = 9;
+		bastion = true;
+	}
+	if (ImGui::Sliderbox("Lost Souls Reborn", &lostsoulsreborn))
+	{
+		bastion = false;
+		TimeStopCooldown = 20;
+		tsCooldown = 20;
+		lostsoulsreborn = true;
+	}
 	if (ImGui::Button("Save Position"))
 	{
 		std::ifstream inFile("Config.txt");
@@ -561,15 +613,26 @@ void Overlay::RenderMenu()
 			}
 			inFile.close();
 		}
-		while (lines.size() < 5) {
+		while (lines.size() < 17) {
 			lines.push_back(""); 
 		}
 
-		lines[0] = std::to_string(static_cast<int>(infoWindowPos.x)) + " " + std::to_string(static_cast<int>(infoWindowPos.y));
-		lines[1] = std::to_string(static_cast<int>(infoWindowPos2.x)) + " " + std::to_string(static_cast<int>(infoWindowPos2.y));
-		lines[2] = std::to_string(static_cast<float>(bgAlpha));
-		lines[3] = std::to_string(static_cast<int>(infoWindowPos3.x)) + " " + std::to_string(static_cast<int>(infoWindowPos3.y));
-		lines[4] = std::to_string(static_cast<int>(DPSWindowPos.x)) + " " + std::to_string(static_cast<int>(DPSWindowPos.y));
+		lines[2] = std::to_string(static_cast<int>(infoWindowPos.x)) + " " + std::to_string(static_cast<int>(infoWindowPos.y));
+		lines[3] = std::to_string(static_cast<int>(infoWindowPos2.x)) + " " + std::to_string(static_cast<int>(infoWindowPos2.y));
+		lines[4] = std::to_string(static_cast<float>(bgAlpha));
+		lines[5] = std::to_string(static_cast<int>(infoWindowPos3.x)) + " " + std::to_string(static_cast<int>(infoWindowPos3.y));
+		lines[6] = std::to_string(static_cast<int>(DPSWindowPos.x)) + " " + std::to_string(static_cast<int>(DPSWindowPos.y));
+		lines[7] = std::to_string(static_cast<int>(BuffWindowPos.x)) + " " + std::to_string(static_cast<int>(BuffWindowPos.y));
+		lines[8] = std::to_string(static_cast<bool>(bastion));
+		lines[9] = std::to_string(static_cast<bool>(lostsoulsreborn));
+		lines[10] = std::to_string(static_cast<int>(tsCooldown));
+		lines[11] = std::to_string(static_cast<int>(TimeStopCooldown));
+
+		lines[12] = std::to_string(static_cast<bool>(Buffwindow));
+		lines[13] = std::to_string(static_cast<bool>(Cooldownwindow));
+		lines[14] = std::to_string(static_cast<bool>(Stattrackerwindow));
+		lines[15] = std::to_string(static_cast<bool>(DPSwindow));
+		lines[16] = std::to_string(static_cast<bool>(Playerlistwindow));
 
 		std::ofstream outFile("Config.txt");
 		if (outFile.is_open()) {
@@ -595,65 +658,154 @@ void Overlay::RenderDPSMeter() {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
 
 	ImGui::SetNextWindowPos(DPSWindowPos, ImGuiCond_Always);
-	ImGui::SetNextWindowSize(ImVec2(350, 150), ImGuiCond_Always);
+	ImGui::SetNextWindowSize(ImVec2(400, 150), ImGuiCond_Always);
+	if (DPSwindow)
+	{
+		ImGui::Begin("##DPS", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoScrollbar |
+			ImGuiWindowFlags_NoCollapse);
 
-	ImGui::Begin("##DPS", nullptr,
-		ImGuiWindowFlags_NoTitleBar |
-		ImGuiWindowFlags_NoResize |
-		ImGuiWindowFlags_NoScrollbar |
-		ImGuiWindowFlags_NoCollapse);
+		for (auto& [name, p] : players) {
+			p.Update();
+		}
+		static auto prevTime = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		float deltaTime = std::chrono::duration<float>(now - prevTime).count();
+		prevTime = now;
 
-	for (auto& [name, p] : players) {
-		p.Update();
-	}
+		// decrease timer smoothly
+		if (CombatTimer > 0.0f) {
+			CombatTimer -= deltaTime;
+			if (CombatTimer < 0.0f) CombatTimer = 0.0f;
+		}
+		if (CombatTimer == 0.0f) {
+			for (auto& [name, p] : players) {
+				p.combatDamage = 0;
+				p.damageAccum = 0;
+				p.dpsActive = false;
+			}
+		}
+		std::vector<std::pair<std::string, PlayerDPS>> sorted(players.begin(), players.end());
+		std::sort(sorted.begin(), sorted.end(),
+			[](auto& a, auto& b) {
+				return a.second.totalDamage > b.second.totalDamage;
+			});
 
-	std::vector<std::pair<std::string, PlayerDPS>> sorted(players.begin(), players.end());
-	std::sort(sorted.begin(), sorted.end(),
-		[](auto& a, auto& b) {
-			return a.second.totalDamage > b.second.totalDamage;
-		});
-	
-	if (ImGui::BeginTable("dpsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
-		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-		ImGui::TableSetupColumn("Damage", ImGuiTableColumnFlags_WidthStretch);
-		ImGui::TableSetupColumn("DPS", ImGuiTableColumnFlags_WidthStretch);
-		ImGui::TableHeadersRow();
+		if (ImGui::BeginTable("dpsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Total Damage", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Combat Damage", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("DPS", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableHeadersRow();
 
-		int showCount = std::min(5, (int)sorted.size());
-		for (int i = 0; i < showCount; i++) {
-			auto& [name, p] = sorted[i];
-			ImGui::TableNextRow();
+			int showCount = std::min(5, (int)sorted.size());
+			for (int i = 0; i < showCount; i++) {
+				auto& [name, p] = sorted[i];
+				ImGui::TableNextRow();
 
-			ImVec4 color;
-			switch (i) {
-			case 0: color = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); break;   // Gold
-			case 1: color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f); break; // Silver
-			case 2: color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f); break;    // Bronze
-			case 3: color = ImVec4(0.5f, 0.7f, 1.0f, 1.0f); break;    // Light Blue
-			case 4: color = ImVec4(0.6f, 0.8f, 0.6f, 1.0f); break;    // Light Green
-			default: color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); break;   // fallback
+				ImVec4 color;
+				switch (i) {
+				case 0: color = ImVec4(1.0f, 0.84f, 0.0f, 1.0f); break;   // Gold
+				case 1: color = ImVec4(0.75f, 0.75f, 0.75f, 1.0f); break; // Silver
+				case 2: color = ImVec4(0.8f, 0.5f, 0.2f, 1.0f); break;    // Bronze
+				case 3: color = ImVec4(0.5f, 0.7f, 1.0f, 1.0f); break;    // Light Blue
+				case 4: color = ImVec4(0.6f, 0.8f, 0.6f, 1.0f); break;    // Light Green
+				default: color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); break;   // fallback
+				}
+
+				ImGui::PushStyleColor(ImGuiCol_Text, color);
+
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(name.c_str());
+
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextUnformatted(FormatWithCommas(p.totalDamage).c_str());
+				ImGui::TableSetColumnIndex(2);
+				ImGui::TextUnformatted(FormatWithCommas(p.combatDamage).c_str());
+
+				ImGui::TableSetColumnIndex(3);
+				ImGui::TextUnformatted(FormatInt(p.GetDPS()).c_str());
+
+				ImGui::PopStyleColor();
 			}
 
-			ImGui::PushStyleColor(ImGuiCol_Text, color);
-
-			ImGui::TableSetColumnIndex(0);
-			ImGui::TextUnformatted(name.c_str());
-
-			ImGui::TableSetColumnIndex(1);
-			ImGui::TextUnformatted(FormatWithCommas(p.totalDamage).c_str());
-
-			ImGui::TableSetColumnIndex(2);
-			ImGui::TextUnformatted(FormatInt(p.GetDPS()).c_str());
-
-			ImGui::PopStyleColor();
+			ImGui::EndTable();
+			ImGui::Text("Combat Timer: %.0f", CombatTimer);
 		}
 
-		ImGui::EndTable();
+		ImGui::End();
+		ImGui::PopStyleColor();
 	}
-
-	ImGui::End();
-	ImGui::PopStyleColor();
 }
+extern int spellLevelsRemaining;
+extern bool mantleActive;
+extern bool trackingSpellMantle;
+extern std::chrono::steady_clock::time_point mantleExpireTime;
+void Overlay::BuffWindow() {
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
+
+	ImGui::SetNextWindowPos(BuffWindowPos, ImGuiCond_Always);
+	ImGui::SetNextWindowSize(ImVec2(300, 100), ImGuiCond_Always);
+	if (mantleActive && std::chrono::steady_clock::now() >= mantleExpireTime)
+	{
+		spellLevelsRemaining = 0;
+		trackingSpellMantle = false;
+		mantleActive = false;
+	}
+	if (Buffwindow)
+	{
+		ImGui::Begin("##Buffs", nullptr,
+			ImGuiWindowFlags_NoTitleBar |
+			ImGuiWindowFlags_NoResize |
+			ImGuiWindowFlags_NoScrollbar |
+			ImGuiWindowFlags_NoCollapse);
+		ImGui::Text("Buffs");
+		ImGui::Dummy(ImVec2(0.0f, 3.0f));
+		if (mantleActive)
+		{
+
+			ImGui::Text("Greater Spell Mantle | Min 11 | Max 22");
+			float frac = spellLevelsRemaining / 22.0f;
+			ImGui::ProgressBar(frac, ImVec2(200, 20),
+				(std::to_string(spellLevelsRemaining) + " left").c_str());
+			if (spellLevelsRemaining <= 0)
+			{
+				mantleActive = false;
+				trackingSpellMantle = false;
+			}
+			else
+			{
+				auto now = std::chrono::steady_clock::now();
+				int totalSeconds = std::chrono::duration_cast<std::chrono::seconds>(mantleExpireTime - now).count();
+
+				if (totalSeconds <= 0)
+				{
+					mantleActive = false;
+					spellLevelsRemaining = 0;
+					trackingSpellMantle = false;
+				}
+				else
+				{
+					LevelInfo lvlInfo = GetLevelFromXP(currentXP);
+					float frac = float(totalSeconds) / float(lvlInfo.currentLevel * 6);
+
+					// Interpolate color from green to red
+					ImVec4 barColor = ImVec4(1.0f - frac, frac, 0.0f, 1.0f); // R,G,B,A
+
+					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
+					ImGui::ProgressBar(frac, ImVec2(200, 20), std::to_string(totalSeconds).c_str());
+					ImGui::PopStyleColor();
+				}
+			}
+		}
+
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
+}
+
 
 void Overlay::ClickThrough (bool v)
 {
@@ -770,11 +922,12 @@ DWORD Overlay::CreateOverlay()
 		PlayerList();
 		Cooldowns();
 		RenderDPSMeter();
+		BuffWindow();
 		
 		
 
 
-				ImGui::EndFrame();
+		ImGui::EndFrame();
 		ImGui::Render();
 		const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
 		g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);

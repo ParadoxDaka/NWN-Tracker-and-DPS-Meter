@@ -16,6 +16,7 @@
 #include <regex>
 #include <filesystem>
 #include "Players.h"
+#include "LevelUtils.h"
 bool use_nvidia = true; 
 
 struct Config {
@@ -74,6 +75,8 @@ bool IsKeyDown(int vk)
 {
     return (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
+bool bastion = false;
+bool lostsoulsreborn = false;
 std::atomic<int64_t> totalDamage{ 0 };
 std::atomic<bool> parserRunning{ true };
 std::atomic<int64_t> totalExperience{ 0 };
@@ -87,7 +90,7 @@ std::chrono::steady_clock::time_point GSTimer;
 bool GSTimerActive = false;
 std::chrono::steady_clock::time_point TimeStopTimer;
 bool TimeStopTimerActive = false;
-int TimeStopCooldown = 20;
+int TimeStopCooldown = 9;
 std::chrono::steady_clock::time_point GSShieldTimer;
 bool GSShieldTimerActive = false;
 int GSShieldCooldown = 45;
@@ -139,6 +142,16 @@ int GetRestHoursFromLog(const std::string& line) {
 }
 bool RestTimerActive = false;
 std::chrono::steady_clock::time_point RestReadyTime;
+int spellLevelsRemaining = 0;
+bool trackingSpellMantle = false;
+std::chrono::steady_clock::time_point mantleExpireTime;
+bool mantleActive = false;
+int spellLevelsMax;
+LevelInfo lvlInfo = GetLevelFromXP(currentXP);
+int casterLevel = lvlInfo.currentLevel;
+float CombatTimer = 0.0f;  // global combat timer
+std::chrono::steady_clock::time_point LastDamageTime;
+constexpr int COMBAT_RESET_SECONDS = 10;
 void static LogParserThread(const std::string& logDir)
 {
     std::string currentLog = GetLatestLogFile(logDir);
@@ -169,7 +182,7 @@ void static LogParserThread(const std::string& logDir)
                 int restSeconds = restHours * 2 * 60;
                 RestReadyTime = std::chrono::steady_clock::now() + std::chrono::seconds(restSeconds);
                 RestTimerActive = true;
-                printf("Rest will be ready in %d seconds\n", restSeconds);
+                //printf("Rest will be ready in %d seconds\n", restSeconds);
             }
 
             
@@ -201,10 +214,51 @@ void static LogParserThread(const std::string& logDir)
                                 if (p.totalDamage == 0) {
                                     p.firstHit = std::chrono::steady_clock::now();
                                 }
-                                p.totalDamage += dmg;
-                                totalDamage += dmg;
+
+                                
                                 p.AddDamage(dmg);
                                 p.lastHit = std::chrono::steady_clock::now();
+                                CombatTimer = COMBAT_RESET_SECONDS;
+                                LastDamageTime = std::chrono::steady_clock::now();
+                            }
+                            catch (...) {}
+                        }
+                    }
+                }
+            }
+            size_t mantleCast = line.find("casts Greater Spell Mantle");
+            if (mantleCast != std::string::npos)
+            {
+                trackingSpellMantle = true;
+                spellLevelsRemaining = 11;
+                spellLevelsMax = 22;
+                mantleActive = true;
+
+                // Get caster level from XP
+                LevelInfo lvlInfo = GetLevelFromXP(currentXP);
+                int roundsDuration = lvlInfo.currentLevel; // 1 round per level
+
+                // 1 round = 6 seconds in NWN
+                mantleExpireTime = std::chrono::steady_clock::now() + std::chrono::seconds(roundsDuration * 6);
+            }
+            if (trackingSpellMantle)
+            {
+                size_t absorbPos = line.find("Spell Level Absorption absorbs");
+                if (absorbPos != std::string::npos)
+                {
+                    size_t remainingPos = line.find("remaining", absorbPos);
+                    if (remainingPos != std::string::npos)
+                    {
+                        size_t endNum = remainingPos;
+                        while (endNum > absorbPos && !isdigit(line[endNum])) endNum--;
+
+                        size_t startNum = endNum;
+                        while (startNum > absorbPos && isdigit(line[startNum - 1])) startNum--;
+
+                        if (endNum >= startNum)
+                        {
+                            try {
+                                spellLevelsRemaining = std::stoi(line.substr(startNum, endNum - startNum + 1));
                             }
                             catch (...) {}
                         }
@@ -353,8 +407,18 @@ void static LogParserThread(const std::string& logDir)
             size_t TS = line.find("casts Time Stop");
             if (TS != std::string::npos)
             {
-                TimeStopTimer = std::chrono::steady_clock::now() + std::chrono::seconds(TimeStopCooldown);
-                TimeStopTimerActive = true;
+                if (bastion)
+                {
+                    TimeStopTimer = std::chrono::steady_clock::now() + std::chrono::seconds(TimeStopCooldown);
+                    TimeStopTimerActive = true;
+                    //printf("TimeStopCooldown: %i", TimeStopCooldown);
+                }
+                else if (lostsoulsreborn)
+                {
+                    TimeStopTimer = std::chrono::steady_clock::now() + std::chrono::seconds(TimeStopCooldown);
+                    TimeStopTimerActive = true;
+                    //printf("TimeStopCooldown: %i", TimeStopCooldown);
+                }
             }
 
             size_t lostGoldPos = line.find("Lost ");
