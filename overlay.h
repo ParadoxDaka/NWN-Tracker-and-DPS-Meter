@@ -14,7 +14,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_dx11.h"
 #include "imgui/imgui_impl_win32.h"
-
+#include <d3d11.h>
 #pragma comment(lib, "d3d11.lib")
 
 #define GREEN ImColor(0, 255, 0)
@@ -31,6 +31,12 @@
 class Overlay
 {
 public:
+	ID3D11ShaderResourceView* mapTextureSRV = nullptr;
+	HHOOK g_hMouseHook = nullptr;
+	bool show_map = false;
+	
+	float pendingScrollDelta = 0.0f; // updated by hook
+	
 	void Start();
 	DWORD CreateOverlay();
 	void Clear();
@@ -42,6 +48,9 @@ public:
 	void RenderDPSMeter();
 	void BuffWindow();
 	void PlayerList();
+	void RenderMap();
+
+	void Overlay_AddZoom(float delta);
 	void ClickThrough(bool v);
 	void DrawLine(ImVec2 a, ImVec2 b, ImColor color, float width);
 	ImVec2 infoWindowPos = ImVec2(0, 25); // default position

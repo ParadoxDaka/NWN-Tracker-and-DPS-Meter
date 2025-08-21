@@ -1,4 +1,4 @@
-#pragma warning (disable : 4715)
+﻿#pragma warning (disable : 4715)
 #pragma warning (disable : 4005)
 #pragma warning (disable : 4305)
 #pragma warning (disable : 4244)
@@ -12,9 +12,11 @@
 #include "Players.h"
 #include <map>
 #include "LevelUtils.h"
-
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 int width;
 int height;
+bool DEBUG = false;
 extern bool use_nvidia;
 LONG nv_default = WS_POPUP | WS_CLIPSIBLINGS;
 LONG nv_default_in_game = nv_default | WS_DISABLED;
@@ -196,6 +198,9 @@ extern bool RestTimerActive;
 int tsCooldown = 9;
 extern bool bastion;
 extern bool lostsoulsreborn;
+bool mapInitialized = true;
+float mapZoom = 1.0f;
+ImVec2 mapPanOffset = ImVec2(0, 0);
 void Overlay::RenderInfo()
 {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
@@ -329,6 +334,9 @@ void Overlay::RenderInfo()
 			file >> Stattrackerwindow;
 			file >> DPSwindow;
 			file >> Playerlistwindow;
+			file >> mapPanOffset.x;
+			file >> mapPanOffset.y;
+			file >> mapZoom;
 			file.close();
 		}
 		else
@@ -613,7 +621,7 @@ void Overlay::RenderMenu()
 			}
 			inFile.close();
 		}
-		while (lines.size() < 17) {
+		while (lines.size() < 21) {
 			lines.push_back(""); 
 		}
 
@@ -633,7 +641,9 @@ void Overlay::RenderMenu()
 		lines[14] = std::to_string(static_cast<bool>(Stattrackerwindow));
 		lines[15] = std::to_string(static_cast<bool>(DPSwindow));
 		lines[16] = std::to_string(static_cast<bool>(Playerlistwindow));
-
+		lines[17] = std::to_string(static_cast<float>(mapPanOffset.x));
+		lines[18] = std::to_string(static_cast<float>(mapPanOffset.y));
+		lines[19] = std::to_string(static_cast<float>(mapZoom));
 		std::ofstream outFile("Config.txt");
 		if (outFile.is_open()) {
 			for (const auto& line : lines) {
@@ -645,6 +655,8 @@ void Overlay::RenderMenu()
 			std::cerr << "Failed to open Config.txt for writing\n";
 		}
 	}
+	ImGui::Sliderbox("ENABLE DEBUG STUFF", &DEBUG);
+	
 
 	ImGui::End();
 	ImGui::PopStyleColor();
@@ -654,6 +666,7 @@ extern std::map<std::string, PlayerDPS> players;
 std::string FormatInt(double value) {
 	return FormatWithCommas(static_cast<int64_t>(std::round(value)));
 }
+
 void Overlay::RenderDPSMeter() {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
 
@@ -807,6 +820,212 @@ void Overlay::BuffWindow() {
 }
 
 
+/*
+void Overlay::RenderMap()
+{
+	if (!show_map) return;
+
+	ImGui::Begin("Map", &show_map,
+		ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_NoScrollWithMouse |
+		ImGuiWindowFlags_NoMove);
+
+	// mapZoom = 1.0f means 1:1 pixel mapping
+	ImVec2 mapSize(width * mapZoom, height * mapZoom);
+	ImGui::SetCursorPos(mapPanOffset);
+	ImGui::Image((void*)mapTextureSRV, mapSize);
+
+	// Pan with left drag
+	if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+	{
+		ImVec2 delta = ImGui::GetIO().MouseDelta;
+		mapPanOffset.x += delta.x;
+		mapPanOffset.y += delta.y;
+	}
+
+	// Zoom with pending scroll
+	if (pendingScrollDelta != 0.0f)
+	{
+		ImVec2 mouse;
+		mouse.x = ImGui::GetMousePos().x - ImGui::GetWindowPos().x;
+		mouse.y = ImGui::GetMousePos().y - ImGui::GetWindowPos().y;
+
+		float prevZoom = mapZoom;
+		mapZoom = std::clamp(mapZoom + pendingScrollDelta * 0.1f, 0.2f, 15.0f);
+
+		mapPanOffset.x = (mapPanOffset.x - mouse.x) * (mapZoom / prevZoom) + mouse.x;
+		mapPanOffset.y = (mapPanOffset.y - mouse.y) * (mapZoom / prevZoom) + mouse.y;
+
+		pendingScrollDelta = 0.0f;
+	}
+
+	ImGui::End();
+}
+*/
+struct MapTile {
+	ID3D11ShaderResourceView* texture = nullptr;
+	int width = 0;
+	int height = 0;
+	int x = 0; // top-left position in pixels
+	int y = 0;
+};
+
+std::vector<MapTile> mapTiles;
+
+int mapWidth = 0;
+int mapHeight = 0;
+int tileSize = 4096; // safe for most GPUs
+
+void LoadBigMap(const char* filename)
+{
+	int channels;
+	unsigned char* fullData = stbi_load(filename, &mapWidth, &mapHeight, &channels, 4);
+	if (!fullData) {
+		printf("Failed to load map: %s\n", filename);
+		return;
+	}
+
+	int tilesX = (mapWidth + tileSize - 1) / tileSize;
+	int tilesY = (mapHeight + tileSize - 1) / tileSize;
+
+	for (int ty = 0; ty < tilesY; ty++) {
+		for (int tx = 0; tx < tilesX; tx++) {
+			int w = std::min(tileSize, mapWidth - tx * tileSize);
+			int h = std::min(tileSize, mapHeight - ty * tileSize);
+
+			// Allocate buffer for this tile
+			std::vector<unsigned char> tilePixels(w * h * 4);
+
+			for (int row = 0; row < h; row++) {
+				unsigned char* src = fullData + ((ty * tileSize + row) * mapWidth + tx * tileSize) * 4;
+				unsigned char* dst = tilePixels.data() + (row * w * 4);
+				memcpy(dst, src, w * 4);
+			}
+
+			// Create texture
+			D3D11_TEXTURE2D_DESC desc = {};
+			desc.Width = w;
+			desc.Height = h;
+			desc.MipLevels = 1;
+			desc.ArraySize = 1;
+			desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			desc.SampleDesc.Count = 1;
+			desc.Usage = D3D11_USAGE_DEFAULT;
+			desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+			D3D11_SUBRESOURCE_DATA initData = {};
+			initData.pSysMem = tilePixels.data();
+			initData.SysMemPitch = w * 4;
+
+			ID3D11Texture2D* tex = nullptr;
+			g_pd3dDevice->CreateTexture2D(&desc, &initData, &tex);
+
+			ID3D11ShaderResourceView* srv = nullptr;
+			g_pd3dDevice->CreateShaderResourceView(tex, nullptr, &srv);
+			tex->Release();
+
+			MapTile tile;
+			tile.texture = srv;
+			tile.width = w;
+			tile.height = h;
+			tile.x = tx * tileSize;
+			tile.y = ty * tileSize;
+
+			mapTiles.push_back(tile);
+		}
+	}
+
+	stbi_image_free(fullData);
+}
+struct MapConfig
+{
+	float panX = 0.0f;
+	float panY = 0.0f;
+	float zoom = 1.0f;
+};
+MapConfig mapConfig;
+
+
+void Overlay::RenderMap()
+{
+	if (!show_map) return;
+
+	ImGui::Begin("Map", &show_map,
+		ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_NoScrollWithMouse |
+		ImGuiWindowFlags_NoMove);
+
+	// Initialize starting position and zoom once
+	if (!mapInitialized)
+	{
+		mapPanOffset.x = -5579.7; // example X
+		mapPanOffset.y = -3765.9; // example Y
+		mapZoom = 0.5f;           // starting zoom
+		mapInitialized = true;
+		printf("Map initialized! PanOffset=(%.1f, %.1f), Zoom=%.1f\n",
+			mapPanOffset.x, mapPanOffset.y, mapZoom);
+	}
+	
+
+
+	float zoom = mapZoom;
+	ImVec2 pan = mapPanOffset;
+
+	for (auto& tile : mapTiles)
+	{
+		ImVec2 pos(pan.x + tile.x * zoom, pan.y + tile.y * zoom);
+		ImVec2 size(tile.width * zoom, tile.height * zoom);
+
+		ImGui::SetCursorPos(pos);
+		ImGui::Image((void*)tile.texture, size);
+	}
+
+	// Pan with drag
+	if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+	{
+		ImVec2 delta = ImGui::GetIO().MouseDelta;
+		mapPanOffset.x += delta.x;
+		mapPanOffset.y += delta.y;
+		if (DEBUG)
+		{
+			printf("Dragging: new PanOffset=(%.1f, %.1f)\n", mapPanOffset.x, mapPanOffset.y);
+		}
+	}
+
+	if (ImGui::IsWindowHovered())
+	{
+		// Zoom with wheel
+		if (pendingScrollDelta != 0.0f)
+		{
+			float newZoom = mapZoom + pendingScrollDelta * 0.1f;
+			newZoom = std::clamp(newZoom, 0.2f, 15.0f);  // min/max zoom
+			newZoom = std::max(newZoom, 0.01f);          // extra safety, optional
+
+			if (newZoom != mapZoom) {
+				float prevZoom = mapZoom;
+				mapZoom = newZoom;
+
+				ImVec2 mouse;
+				mouse.x = ImGui::GetMousePos().x - ImGui::GetWindowPos().x;
+				mouse.y = ImGui::GetMousePos().y - ImGui::GetWindowPos().y;
+
+				mapPanOffset.x = (mapPanOffset.x - mouse.x) * (mapZoom / prevZoom) + mouse.x;
+				mapPanOffset.y = (mapPanOffset.y - mouse.y) * (mapZoom / prevZoom) + mouse.y;
+				if (DEBUG)
+				{
+					printf("Zooming: Zoom=%.2f, PanOffset=(%.1f, %.1f)\n", mapZoom, mapPanOffset.x, mapPanOffset.y);
+				}
+			}
+
+			pendingScrollDelta = 0.0f;
+		}
+	}
+
+	ImGui::End();
+}
+
 void Overlay::ClickThrough (bool v)
 {
 	if (v)
@@ -826,6 +1045,33 @@ bool k_ins = false;
 bool show_menu = false;
 extern bool IsKeyDown(int vk);
 
+Overlay* g_overlayInstance = nullptr;
+void Overlay::Overlay_AddZoom(float delta)
+{
+	float prevZoom = mapZoom;
+	mapZoom = std::clamp(mapZoom + delta * 0.1f, 0.2f, 15.0f);
+
+	// Optional: adjust pan so zoom is centered at mouse
+	ImVec2 mouse;
+	mouse.x = ImGui::GetMousePos().x - ImGui::GetWindowPos().x;
+	mouse.y = ImGui::GetMousePos().y - ImGui::GetWindowPos().y;
+	mapPanOffset.x = (mapPanOffset.x - mouse.x) * (mapZoom / prevZoom) + mouse.x;
+	mapPanOffset.y = (mapPanOffset.y - mouse.y) * (mapZoom / prevZoom) + mouse.y;
+}
+LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+	if (nCode == HC_ACTION && wParam == WM_MOUSEWHEEL && g_overlayInstance)
+	{
+		if (g_overlayInstance->show_map) // only when map is shown
+		{
+			MSLLHOOKSTRUCT* mouseStruct = (MSLLHOOKSTRUCT*)lParam;
+			int delta = GET_WHEEL_DELTA_WPARAM(mouseStruct->mouseData);
+			g_overlayInstance->pendingScrollDelta += delta / 120.0f;
+		}
+	}
+
+	return CallNextHookEx(nullptr, nCode, wParam, lParam);
+}
 DWORD Overlay::CreateOverlay()
 {
 	EnumWindows(EnumWindowsCallback, (LPARAM)&overlayHWND);
@@ -848,6 +1094,7 @@ DWORD Overlay::CreateOverlay()
 		CleanupDeviceD3D();
 		return 1;
 	}
+
 	::ShowWindow(overlayHWND, SW_SHOWDEFAULT);
 	::UpdateWindow(overlayHWND);
 
@@ -864,6 +1111,35 @@ DWORD Overlay::CreateOverlay()
 
 		MSG msg;
 	ZeroMemory(&msg, sizeof(msg));
+	LoadBigMap("map.png");
+	g_overlayInstance = this;
+	g_hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
+	if (!g_hMouseHook)
+	{
+		printf("Failed to install mouse hook!\n");
+	}
+	int width, height, channels;
+	unsigned char* data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\map.png", &width, &height, &channels, 4);
+	if (data) { D3D11_TEXTURE2D_DESC desc = {};
+	desc.Width = width;
+	desc.Height = height;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	D3D11_SUBRESOURCE_DATA initData = {};
+	initData.pSysMem = data; initData.SysMemPitch = width * 4;
+	ID3D11Texture2D* tex = nullptr;
+	HRESULT hr = g_pd3dDevice->CreateTexture2D(&desc, &initData, &tex); 
+	if (FAILED(hr)) 
+	{
+		printf("Failed to create texture! HRESULT=0x%08X\n", hr);
+	} 
+	hr = g_pd3dDevice->CreateShaderResourceView(tex, nullptr, &mapTextureSRV); if (FAILED(hr)) 
+	{ printf("Failed to create SRV! HRESULT=0x%08X\n", hr); }
+	tex->Release(); stbi_image_free(data); } else { printf("Failed to load PNG with stb_image!\n"); }
 
 	ClickThrough(false);
 	while (running)
@@ -873,7 +1149,7 @@ DWORD Overlay::CreateOverlay()
 		{
 			if (GetWindowLong(overlayHWND, GWL_STYLE) != nv_edit)
 				SetWindowLong(overlayHWND, GWL_STYLE, nv_edit);
-			if (show_menu)
+			if (show_menu || show_map)
 			{
 				ClickThrough(false);
 			}
@@ -904,8 +1180,8 @@ DWORD Overlay::CreateOverlay()
 
 		io.MousePos = ImVec2(io.MousePos.x, io.MousePos.y);
 
-				io.MouseDown[0] = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-				if (IsKeyDown(VK_INSERT) && !k_ins)
+		io.MouseDown[0] = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+		if (IsKeyDown(VK_INSERT) && !k_ins)
 		{
 			show_menu = !show_menu;
 			ClickThrough(!show_menu);
@@ -915,9 +1191,20 @@ DWORD Overlay::CreateOverlay()
 		{
 			k_ins = false;
 		}
+		static bool k_home = false;
+		if (IsKeyDown(VK_HOME) && !k_home) {
+			show_map = !show_map;   // toggle map window
+			ClickThrough(!show_map);
+			k_home = true;
+
+		}
+		else if (!IsKeyDown(VK_HOME) && k_home) {
+			k_home = false;
+		}
 		if (show_menu)
 			RenderMenu();
-
+		if (show_map)
+			RenderMap();
 		RenderInfo();
 		PlayerList();
 		Cooldowns();
@@ -938,7 +1225,11 @@ DWORD Overlay::CreateOverlay()
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 	ClickThrough(true);
-
+	if (g_hMouseHook)
+	{
+		UnhookWindowsHookEx(g_hMouseHook);
+		g_hMouseHook = nullptr;
+	}
 	CleanupDeviceD3D();
 	::DestroyWindow(overlayHWND);
 	return 0;
