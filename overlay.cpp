@@ -104,6 +104,7 @@ void Overlay::String(ImVec2 pos, ImColor color, const char* text)
 {
 	Text(pos, color, text, text + strlen(text), 200, 0);
 }
+
 extern std::atomic<int64_t> totalDamage;
 extern std::atomic<int64_t> totalExperience;
 extern std::atomic<int64_t> totalKills;
@@ -1113,19 +1114,19 @@ DWORD Overlay::CreateOverlay()
 		}
 		load = false;
 	}
-	printf("Loading Map\n");
+	printf("Loading Map...Takes a sec\n");
 	int width, height, channels;
-	unsigned char* data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png", &width, &height, &channels, 4);
+	unsigned char* data = nullptr;
 
 	if (bastion)
 	{
-		LoadBigMap("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png");
-		data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png", &width, &height, &channels, 4);
+		LoadBigMap("Bastion of Peace.png");
+		data = stbi_load("Bastion of Peace.png", &width, &height, &channels, 4);
 	}
 	else if (lostsoulsreborn)
 	{
-		LoadBigMap("Ametha.jpg");
-		data = stbi_load("Ametha.jpg", &width, &height, &channels, 4);
+		LoadBigMap("Ametha.png");
+		data = stbi_load("Ametha.png", &width, &height, &channels, 4);
 	}
 	
 	if (!data)
