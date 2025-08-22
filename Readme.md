@@ -2,7 +2,10 @@
 By UnknownLight
 
 
-**Video:** [Watch on YouTube](https://www.youtube.com/watch?v=bMqkrmTklm4)
+**Video:**
+[Watch on YouTube](https://www.youtube.com/watch?v=bMqkrmTklm4)
+
+[Update on YouTube](https://www.youtube.com/watch?v=_Tl6ItbCvKY)
 
 
 Also by UnknownLight is a map of Lost Souls Reborn:  
