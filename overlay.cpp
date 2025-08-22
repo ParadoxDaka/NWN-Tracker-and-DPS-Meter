@@ -18,6 +18,23 @@ int width;
 int height;
 bool DEBUG = false;
 extern bool use_nvidia;
+extern int TimeStopCooldown;
+static float bgAlpha = 1.0f;
+extern std::vector<std::string> playerList;
+extern bool GSTimerActive;
+constexpr int GSTimerActiveCooldown = 45;
+extern int totalGold;
+extern int currentGold;
+extern int goldHrAccumulated;
+extern std::chrono::steady_clock::time_point goldStartTime;
+extern std::chrono::steady_clock::time_point RestReadyTime;
+extern bool RestTimerActive;
+int tsCooldown = 9;
+extern bool bastion;
+extern bool lostsoulsreborn;
+bool mapInitialized = true;
+float mapZoom = 1.0f;
+ImVec2 mapPanOffset = ImVec2(0, 0);
 LONG nv_default = WS_POPUP | WS_CLIPSIBLINGS;
 LONG nv_default_in_game = nv_default | WS_DISABLED;
 LONG nv_edit = nv_default_in_game | WS_VISIBLE;
@@ -184,23 +201,7 @@ std::string static FormatWithCommas(int64_t value)
 	ss << std::fixed << value;
 	return ss.str();
 }
-extern int TimeStopCooldown;
-static float bgAlpha = 1.0f;
-extern std::vector<std::string> playerList;
-extern bool GSTimerActive;
-constexpr int GSTimerActiveCooldown = 45;
-extern int totalGold;
-extern int currentGold;
-extern int goldHrAccumulated;
-extern std::chrono::steady_clock::time_point goldStartTime;
-extern std::chrono::steady_clock::time_point RestReadyTime;
-extern bool RestTimerActive;
-int tsCooldown = 9;
-extern bool bastion;
-extern bool lostsoulsreborn;
-bool mapInitialized = true;
-float mapZoom = 1.0f;
-ImVec2 mapPanOffset = ImVec2(0, 0);
+
 void Overlay::RenderInfo()
 {
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, bgAlpha));
@@ -311,40 +312,7 @@ void Overlay::RenderInfo()
 
 	float totalWidth = maxLeftWidth + maxRightWidth + 10.0f;
 	ImGui::SetNextWindowSize(ImVec2(totalWidth, totalHeight), ImGuiCond_Always);
-	if (load)
-	{
-		std::ifstream file("Config.txt");
-		if (file.is_open())
-		{
-			std::string dummy;
-			std::getline(file, dummy); // skip line 0
-			std::getline(file, dummy); // skip line 1
-			file >> infoWindowPos.x >> infoWindowPos.y;
-			file >> infoWindowPos2.x >> infoWindowPos2.y;
-			file >> bgAlpha;
-			file >> infoWindowPos3.x >> infoWindowPos3.y;
-			file >> DPSWindowPos.x >> DPSWindowPos.y;
-			file >> BuffWindowPos.x >> BuffWindowPos.y;
-			file >> bastion;
-			file >> lostsoulsreborn;
-			file >> tsCooldown;
-			file >> TimeStopCooldown;
-			file >> Buffwindow;
-			file >> Cooldownwindow;
-			file >> Stattrackerwindow;
-			file >> DPSwindow;
-			file >> Playerlistwindow;
-			file >> mapPanOffset.x;
-			file >> mapPanOffset.y;
-			file >> mapZoom;
-			file.close();
-		}
-		else
-		{
-			printf("Failed to open Config.txt for reading\n");
-		}
-		load = false;
-	}
+	
 	if (Stattrackerwindow)
 	{
 		ImGui::Begin("##info", nullptr,
@@ -1111,15 +1079,67 @@ DWORD Overlay::CreateOverlay()
 
 		MSG msg;
 	ZeroMemory(&msg, sizeof(msg));
-	LoadBigMap("map.png");
+	if (load)
+	{
+		std::ifstream file("Config.txt");
+		if (file.is_open())
+		{
+			std::string dummy;
+			std::getline(file, dummy); // skip line 0
+			std::getline(file, dummy); // skip line 1
+			file >> infoWindowPos.x >> infoWindowPos.y;
+			file >> infoWindowPos2.x >> infoWindowPos2.y;
+			file >> bgAlpha;
+			file >> infoWindowPos3.x >> infoWindowPos3.y;
+			file >> DPSWindowPos.x >> DPSWindowPos.y;
+			file >> BuffWindowPos.x >> BuffWindowPos.y;
+			file >> bastion;
+			file >> lostsoulsreborn;
+			file >> tsCooldown;
+			file >> TimeStopCooldown;
+			file >> Buffwindow;
+			file >> Cooldownwindow;
+			file >> Stattrackerwindow;
+			file >> DPSwindow;
+			file >> Playerlistwindow;
+			file >> mapPanOffset.x;
+			file >> mapPanOffset.y;
+			file >> mapZoom;
+			file.close();
+		}
+		else
+		{
+			printf("Failed to open Config.txt for reading\n");
+		}
+		load = false;
+	}
+	printf("Loading Map\n");
+	int width, height, channels;
+	unsigned char* data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png", &width, &height, &channels, 4);
+
+	if (bastion)
+	{
+		LoadBigMap("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png");
+		data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\Bastion of Peace.png", &width, &height, &channels, 4);
+	}
+	else if (lostsoulsreborn)
+	{
+		LoadBigMap("Ametha.jpg");
+		data = stbi_load("Ametha.jpg", &width, &height, &channels, 4);
+	}
+	
+	if (!data)
+	{
+		printf("Failed to load map image!\n");
+	}
+	printf("Done Loading Map\n");
 	g_overlayInstance = this;
 	g_hMouseHook = SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
 	if (!g_hMouseHook)
 	{
 		printf("Failed to install mouse hook!\n");
 	}
-	int width, height, channels;
-	unsigned char* data = stbi_load("C:\\Games\\Neverwinter_Nights_Enhanced_Edition\\bin\\win32\\map.png", &width, &height, &channels, 4);
+	
 	if (data) { D3D11_TEXTURE2D_DESC desc = {};
 	desc.Width = width;
 	desc.Height = height;
