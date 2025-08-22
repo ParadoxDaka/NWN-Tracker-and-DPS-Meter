@@ -29,6 +29,10 @@ Gold / HR
 
 How it works:
 
+INSERT for options, and HOME to show the map.
+
+TO switch maps, you have to restart the overlay.
+
 Reads and parses the log nwcliendLog1.txt, it looks for damages, gold, casts, exp etc. It needs your Player name for Total Damage and DPS etc, so put it in the config.
 
 Hit Insert to bring up the config menu.
